@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>線上網頁螢幕錄影工具</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7f6;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            color: #333;
+        }
+
+        .container {
+            background-color: #fff;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+            text-align: center;
+            max-width: 800px;
+            width: 90%;
+        }
+
+        h1 {
+            margin-top: 0;
+            color: #2c3e50;
+        }
+
+        .status {
+            margin: 15px 0;
+            font-weight: bold;
+            color: #7f8c8d;
+        }
+
+        .status.recording {
+            color: #e74c3c;
+            animation: blink 1s infinite;
+        }
+
+        video {
+            width: 100%;
+            max-height: 400px;
+            background-color: #000;
+            border-radius: 8px;
+            margin-top: 15px;
+            display: none; /* 預設隱藏，錄影完顯示回放 */
+        }
+
+        .btn-group {
+            margin-top: 20px;
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-weight: 600;
+        }
+
+        #startBtn {
+            background-color: #2ecc71;
+            color: white;
+        }
+
+        #startBtn:hover { background-color: #27ae60; }
+
+        #stopBtn {
+            background-color: #e74c3c;
+            color: white;
+        }
+
+        #stopBtn:hover { background-color: #c0392b; }
+
+        #downloadBtn {
+            background-color: #3498db;
+            color: white;
+        }
+
+        #downloadBtn:hover { background-color: #2980b9; }
+
+        button:disabled {
+            background-color: #bdc3c7 !important;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        @keyframes blink {
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🎬 線上螢幕錄影工具</h1>
+    <p>無需安裝任何軟體，完全在您的瀏覽器內安全執行。</p>
+    
+    <div id="statusTag" class="status">狀態：準備就緒</div>
+    
+    <video id="previewVideo" controls></video>
+
+    <div class="btn-group">
+        <button id="startBtn">開始錄影</button>
+        <button id="stopBtn" disabled>停止錄影</button>
+        <button id="downloadBtn" disabled>下載影片</button>
+    </div>
+</div>
+
+<script>
+    let mediaRecorder;
+    let recordedChunks = [];
+    let stream;
+
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const previewVideo = document.getElementById('previewVideo');
+    const statusTag = document.getElementById('statusTag');
+
+    // 開始錄影
+    startBtn.addEventListener('click', async () => {
+        recordedChunks = []; // 清空上一次的紀錄
+        
+        try {
+            // 請求捕獲螢幕與系統音訊（若使用者勾選分享音訊）
+            stream = await navigator.mediaDevices.getDisplayMedia({
+                video: true,
+                audio: true
+            });
+
+            // 設定 MediaRecorder
+            mediaRecorder = new MediaRecorder(stream, {
+                mimeType: 'video/webm; codecs=vp9' 
+            });
+
+            // 當有錄影數據可用時，存入陣列
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) {
+                    recordedChunks.push(e.data);
+                }
+            };
+
+            // 錄影停止時的處理
+            mediaRecorder.onstop = () => {
+                statusTag.textContent = "狀態：錄影結束，可以預覽或下載";
+                statusTag.classList.remove('recording');
+                
+                // 產生 Blob 並放入預覽播放器
+                const blob = new Blob(recordedChunks, { type: 'video/webm' });
+                const videoURL = URL.createObjectURL(blob);
+                previewVideo.src = videoURL;
+                previewVideo.style.display = 'block'; // 顯示影片元件
+                
+                downloadBtn.disabled = false;
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+
+                // 停止所有軌道（關閉瀏覽器的錄影提示欄）
+                stream.getTracks().forEach(track => track.stop());
+            };
+
+            // 當使用者直接點擊瀏覽器自帶的「停止共用」按鈕時
+            stream.getVideoTracks()[0].onended = () => {
+                if (mediaRecorder.state !== 'inactive') {
+                    mediaRecorder.stop();
+                }
+            };
+
+            // 開始錄製
+            mediaRecorder.start();
+            
+            // 更新 UI 狀態
+            statusTag.textContent = "🔴 狀態：正在錄影中...";
+            statusTag.classList.add('recording');
+            previewVideo.style.display = 'none'; // 錄影中先隱藏預覽
+            
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+            downloadBtn.disabled = true;
+
+        } catch (err) {
+            console.error("無法啟動螢幕錄影:", err);
+            alert("錄影啟動失敗，請確保您給予了螢幕分享權限。");
+        }
+    });
+
+    // 停止錄影
+    stopBtn.addEventListener('click', () => {
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            mediaRecorder.stop();
+        }
+    });
+
+    // 下載影片
+    downloadBtn.addEventListener('click', () => {
+        const blob = new Blob(recordedChunks, { type: 'video/webm' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        // 以當前時間作為檔名
+        const timestamp = new Date().toISOString().slice(0,19).replace(/:/g, '-');
+        a.download = `screen-recording-${timestamp}.webm`;
+        document.body.appendChild(a);
+        a.click();
+        
+        // 延遲釋放記憶體
+        setTimeout(() => {
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        }, 100);
+    });
+</script>
+
+</body>
+</html>
